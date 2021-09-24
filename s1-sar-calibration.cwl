@@ -36,7 +36,7 @@ $graph:
     #  label: A reference to an opensearch catalog
     #  type: string[]
     search-terms:
-      type: string[]
+      type: string[]?
       doc: key:value pair for the discovery step
     endpoint:
       type: string
@@ -77,43 +77,14 @@ $graph:
         inp2: endpoint
       out:
       - results
-      run:
-        arguments:
-        #- -p 
-        #- do=[terradue]
-        baseCommand: opensearch-client
-        stdout: message 
-        class: CommandLineTool
-        hints:
-          DockerRequirement:
-            dockerPull: terradue/opensearch-client:latest
-        inputs:
-          inp1: 
-            type:
-              - "null"
-              - type: array
-                items: string
-                inputBinding:
-                  prefix: '-p'
-  
-          inp2:
-            inputBinding:
-              position: 8
-            type: string
-        outputs:
-          results: 
-            type: string[]
-            outputBinding:
-              glob: message
-              loadContents: true
-              outputEval: $(self[0].contents.split('\n').slice(0,-1))
+      run: "#opensearch"
+       
     node_stage_in:
       in:
         inp1: 
           source: node_opensearch/results
         harvest: harvest
         verbose: verbose
-#        do: do
         source_access_key_id: source-access-key-id
         source_secret_access_key: source-secret-access-key
         source_service_url: source-service-url
@@ -122,91 +93,11 @@ $graph:
         si: si
       out:
       - results
-      run: 
-        arguments:
-        - copy
-        - -xa
-        - "false"
-        - valueFrom: |
-            ${ return '-conf=' + inputs.config.path }
-        - -rel
-        - -si 
-        - valueFrom: |
-            ${
-              return inputs.si.toString(); 
-            }
-        - valueFrom: |
-            ${ 
-              if (inputs.verbose == 'true')
-                {return "-v";} 
-              else 
-                {return "--empty"}
-              }
-        - -r
-        - '4'
-        - valueFrom: |
-            ${ 
-              if (inputs.harvest == 'true')
-                {return "--harvest";} 
-              else 
-                {return "--empty"}
-              }
-        - valueFrom: |
-            ${ 
-              if (inputs.inp1.split("#").length == 2) 
-                { return ["-af", inputs.inp1.split("#")[1]]; }
-             else 
-                {return "--empty"}
-             }
-        - -o
-        - ./
-        - valueFrom: ${ return inputs.inp1.split("#")[0]; } # + '&do=[' + inputs.do.toString() + ']'; }
-        baseCommand: Stars
-        class: CommandLineTool
-        hints:
-          DockerRequirement:
-            dockerPull: terradue/stars-t2:latest
-        inputs:
-          inp1:
-            inputBinding:
-            type: string
-          harvest:
-            type: string
-          verbose:
-            type: string
-#          do:
-#            type: string[]
-          source_access_key_id:
-            type: string?
-          source_secret_access_key:
-            type: string?
-          source_service_url:
-            type: string?
-          source_region:
-            type: string?
-          config:
-            type: File
-          si: 
-            type: string[]
-        outputs:
-          results:
-            outputBinding:
-              glob: .
-            type: Any
-        requirements:
-          EnvVarRequirement:
-              envDef:
-                AWS_ACCESS_KEY_ID: $(inputs.source_access_key_id)
-                AWS_SECRET_ACCESS_KEY: $(inputs.source_secret_access_key)
-                AWS__ServiceURL: $(inputs.source_service_url)
-                AWS__Region: $(inputs.source_region)
-                AWS__AuthenticationRegion: $(inputs.source_region)
-                AWS__SignatureVersion: "2"
-                PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-          ResourceRequirement: {}    
-          InlineJavascriptRequirement: {}
+      run: "#stage-in"
+        
       scatter: inp1
-      scatterMethod: dotproduct     
+      scatterMethod: dotproduct  
+
     node_stage_out:
       in:
         sink_access_key_id: sink-access-key-id
@@ -218,70 +109,188 @@ $graph:
             source: [node_stage_in/results]
       out:
       - wf_outputs_out
-      run:
-        arguments:
-        - copy
-        - -rel
-        - valueFrom: |
-            ${ 
-              if (inputs.verbose == 'true')
-                {return "-v";} 
-              else 
-                {return "--empty"}
-              }
-        - valueFrom: |
-            ${ 
-              if (inputs.harvest == 'true')
-                {return "--harvest";} 
-              else 
-                {return "--empty"}
-              }
-        - -r
-        - '4'
-        - -af 
-        - download
-        baseCommand: Stars
-        class: CommandLineTool
-        cwlVersion: v1.0
-        doc: Run Stars for staging data
-        hints:
-          DockerRequirement:
-            dockerPull: terradue/stars-t2:latest
-        id: stars
-        inputs:
-          sink_access_key_id:
-            type: string?
-          sink_secret_access_key:
-            type: string?
-          sink_service_url:
-            type: string?
-          sink_region:
-            type: string?
-          sink_path:
-            inputBinding:
-              position: 5
-              prefix: -o
-            type: string?
-          wf_outputs:
-            inputBinding:
-              position: 6
-            type: Directory[]
-        outputs:
-          wf_outputs_out:
-            outputBinding:
-              glob: .
-            type: Directory[]
-        requirements:
-          EnvVarRequirement:
-            envDef:
-              AWS_ACCESS_KEY_ID: $(inputs.sink_access_key_id)
-              AWS_SECRET_ACCESS_KEY: $(inputs.sink_secret_access_key)
-              AWS__ServiceURL: $(inputs.sink_service_url)
-              AWS__Region: $(inputs.sink_region)
-              AWS__AuthenticationRegion: $(inputs.sink_region)
-              AWS__SignatureVersion: "2"
-              PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-          ResourceRequirement: {}
+      run: "#stage-out"
+        
       scatter: wf_outputs
       scatterMethod: dotproduct
+
+
+- class: CommandLineTool 
+  id: opensearch
+  baseCommand: opensearch-client
+  arguments:
+  stdout: message        
+  requirements:
+    DockerRequirement:
+      dockerPull: docker.io/terradue/opensearch-client:latest
+  inputs:
+    inp1: 
+      type:
+        - "null"
+        - type: array
+          items: string
+          inputBinding:
+            prefix: '-p'
+    inp2:
+      inputBinding:
+        position: 8
+      type: string
+  outputs:
+    results: 
+      type: string[]
+      outputBinding:
+        glob: message
+        loadContents: true
+        outputEval: $(self[0].contents.split('\n').slice(0,-1))
+
+- class: CommandLineTool
+  id: stage-in
+
+  baseCommand: Stars
+  
+  arguments:
+  - copy
+  #- -xa
+  #- "false"
+  - valueFrom: |
+      ${ return '-conf=' + inputs.config.path }
+  - -rel
+  - -si 
+  - valueFrom: |
+      ${
+        return inputs.si.toString(); 
+      }
+  - valueFrom: |
+      ${ 
+        if (inputs.verbose == 'true')
+          {return "-v";} 
+        else 
+          {return "--empty"}
+        }
+  - -r
+  - '4'
+  - valueFrom: |
+      ${ 
+        if (inputs.harvest == 'true')
+          {return "--harvest";} 
+        else 
+          {return "--empty"}
+        }
+  - valueFrom: |
+      ${ 
+        if (inputs.inp1.split("#").length == 2) 
+          { return ["-af", inputs.inp1.split("#")[1]]; }
+        else 
+          {return "--empty"}
+        }
+  - -o
+  - ./
+  - valueFrom: ${ return inputs.inp1.split("#")[0]; } # + '&do=[' + inputs.do.toString() + ']'; }
+    
+  inputs:
+    inp1:
+      inputBinding:
+      type: string
+    harvest:
+      type: string
+    verbose:
+      type: string
+    source_access_key_id:
+      type: string?
+    source_secret_access_key:
+      type: string?
+    source_service_url:
+      type: string?
+    source_region:
+      type: string?
+    config:
+      type: File
+    si: 
+      type: string[]
+  outputs:
+    results:
+      outputBinding:
+        glob: .
+      type: Any
+  requirements:
+    EnvVarRequirement:
+        envDef:
+          AWS_ACCESS_KEY_ID: $(inputs.source_access_key_id)
+          AWS_SECRET_ACCESS_KEY: $(inputs.source_secret_access_key)
+          AWS__ServiceURL: $(inputs.source_service_url)
+          AWS__Region: $(inputs.source_region)
+          AWS__AuthenticationRegion: $(inputs.source_region)
+          AWS__SignatureVersion: "2"
+          PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    ResourceRequirement: {}    
+    InlineJavascriptRequirement: {}
+    DockerRequirement:
+      dockerPull: terradue/stars-t2:0.9.36
+
+- class: CommandLineTool
+  id: stage-out
+ 
+  baseCommand: Stars
+  
+  arguments:
+  - copy
+  - -rel
+  - valueFrom: |
+      ${ 
+        if (inputs.verbose == 'true')
+          {return "-v";} 
+        else 
+          {return "--empty"}
+        }
+  - valueFrom: |
+      ${ 
+        if (inputs.harvest == 'true')
+          {return "--harvest";} 
+        else 
+          {return "--empty"}
+        }
+  - -r
+  - '4'
+  - -af 
+  - download
+ 
+  inputs:
+    sink_access_key_id:
+      type: string?
+    sink_secret_access_key:
+      type: string?
+    sink_service_url:
+      type: string?
+    sink_region:
+      type: string?
+    sink_path:
+      inputBinding:
+        position: 5
+        prefix: -o
+      type: string?
+    wf_outputs:
+      inputBinding:
+        position: 6
+      type: Directory[]
+
+  outputs:
+    wf_outputs_out:
+      outputBinding:
+        glob: .
+      type: Directory[]
+
+  requirements:
+    EnvVarRequirement:
+      envDef:
+        AWS_ACCESS_KEY_ID: $(inputs.sink_access_key_id)
+        AWS_SECRET_ACCESS_KEY: $(inputs.sink_secret_access_key)
+        AWS__ServiceURL: $(inputs.sink_service_url)
+        AWS__Region: $(inputs.sink_region)
+        AWS__AuthenticationRegion: $(inputs.sink_region)
+        AWS__SignatureVersion: "2"
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    ResourceRequirement: {}
+    DockerRequirement:
+      dockerPull: terradue/stars-t2:latest
+
 cwlVersion: v1.0

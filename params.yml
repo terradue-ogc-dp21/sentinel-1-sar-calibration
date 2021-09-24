@@ -1,0 +1,12 @@
+config: {"class": "File", "path": "./usersettings.json"}
+endpoint: "https://catalog.terradue.com/sentinel1/search"
+harvest: "false"
+si: 
+- ASF
+verbose: "false"
+search-terms:
+- "count=1"
+- "start=2021-01-01T00:00:00Z"
+- "stop=2021-01-02T00:00:00Z"
+- "eop:productType=SLC"
+- "geom=POLYGON((8.086 38.548%2C8.086 40.313%2C11.25 40.313%2C11.25 38.548%2C8.086 38.548))"
