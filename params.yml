@@ -1,12 +1,15 @@
 config: {"class": "File", "path": "./usersettings.json"}
 endpoint: "https://catalog.terradue.com/sentinel1/search"
-harvest: "false"
+harvest: "true"
 si: 
 - ASF
 verbose: "false"
 search-terms:
-- "count=1"
-- "start=2021-01-01T00:00:00Z"
-- "stop=2021-01-02T00:00:00Z"
-- "eop:productType=SLC"
-- "geom=POLYGON((8.086 38.548%2C8.086 40.313%2C11.25 40.313%2C11.25 38.548%2C8.086 38.548))"
+- "uid=S1B_IW_GRDH_1SDV_20210929T233417_20210929T233442_028919_037386_1E60"
+
+
+# - "count=1"
+#- "start=2021-01-01T00:00:00Z"
+#- "stop=2021-01-02T00:00:00Z"
+#- "eop:productType=SLC"
+#- "geom=POLYGON((8.086 38.548%2C8.086 40.313%2C11.25 40.313%2C11.25 38.548%2C8.086 38.548))"

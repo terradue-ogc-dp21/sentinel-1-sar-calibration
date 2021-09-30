@@ -55,15 +55,16 @@ $graph:
     si: 
       type: string[]
       doc: Sets the supplier(s) 
+
   outputs:
   - id: wf_outputs_m
     outputSource:
     - node_stage_out/wf_outputs_out
-    type:
-          type: array
-          items:
-            type: array
-            items: Directory
+    type: Directory[]
+         # type: array
+         # items:
+         #   type: array
+         #   items: Directory
   requirements:
     - class: ScatterFeatureRequirement
     - class: StepInputExpressionRequirement
@@ -76,13 +77,13 @@ $graph:
         inp1: search-terms
         inp2: endpoint
       out:
-      - results
+      - discovered
       run: "#opensearch"
        
     node_stage_in:
       in:
         inp1: 
-          source: node_opensearch/results
+          source: node_opensearch/discovered
         harvest: harvest
         verbose: verbose
         source_access_key_id: source-access-key-id
@@ -92,11 +93,55 @@ $graph:
         config: config
         si: si
       out:
-      - results
+      - staged
       run: "#stage-in"
         
       scatter: inp1
       scatterMethod: dotproduct  
+
+    node_resolve_manifest:
+      run: '#cat2asset'
+      in:
+        stac: 
+          source: [node_stage_in/staged]
+        asset:
+          default: "manifest"
+      out:
+      - asset_href
+
+      scatter: stac
+      scatterMethod: dotproduct  
+
+    node_sar_calibration: 
+      in:
+        product: 
+          source: [node_stage_in/staged]
+        asset_href:
+          source: [node_resolve_manifest/asset_href]
+      out: 
+      - calibrated
+      run: "#sar-calibration"
+        
+      scatter: product
+      scatterMethod: dotproduct  
+
+    node_stac:
+
+      in:
+        staged: 
+          source: [node_stage_in/staged]
+        calibrated:
+          source: [node_sar_calibration/calibrated]
+        overview:
+          source: [node_sar_calibration/calibrated]
+
+      out: 
+      - stac
+
+      run: "#stac-ify"
+
+      scatter: staged
+      scatterMethod: dotproduct
 
     node_stage_out:
       in:
@@ -106,7 +151,7 @@ $graph:
         sink_path: sink-path
         sink_region: sink-region
         wf_outputs: 
-            source: [node_stage_in/results]
+            source: [node_stac/stac]
       out:
       - wf_outputs_out
       run: "#stage-out"
@@ -136,7 +181,7 @@ $graph:
         position: 8
       type: string
   outputs:
-    results: 
+    discovered: 
       type: string[]
       outputBinding:
         glob: message
@@ -208,10 +253,10 @@ $graph:
     si: 
       type: string[]
   outputs:
-    results:
+    staged:
       outputBinding:
         glob: .
-      type: Any
+      type: Directory
   requirements:
     EnvVarRequirement:
         envDef:
@@ -225,7 +270,203 @@ $graph:
     ResourceRequirement: {}    
     InlineJavascriptRequirement: {}
     DockerRequirement:
-      dockerPull: terradue/stars-t2:0.9.36
+      dockerPull: docker.io/terradue/stars-t2:0.9.44
+
+- class: CommandLineTool
+  id: cat2asset
+  requirements:
+    InlineJavascriptRequirement: {}
+    DockerRequirement:
+      dockerPull: terradue/jq
+    ShellCommandRequirement: {}
+    InitialWorkDirRequirement:
+      listing:
+        - entryname: resolve.sh
+          entry: |-
+            item="` jq -r '.links | select(.. | .rel? == "item")[0].href' $(inputs.stac.path)/catalog.json`"
+            echo `dirname $item`/`cat $(inputs.stac.path)/$item | jq -r ".assets.$(inputs.asset).href"`
+  baseCommand: ["/bin/bash", "resolve.sh"]
+  inputs:
+    stac: Directory
+    asset: string
+  outputs:
+    asset_href:
+      type: string
+      outputBinding:
+        glob: message
+        loadContents: true
+        outputEval: $( self[0].contents.split("\n").join("") )
+  stdout: message
+
+- class: CommandLineTool
+  id: sar-calibration
+
+  requirements:
+    DockerRequirement:
+      dockerPull: snap-gpt
+    EnvVarRequirement:
+      envDef:
+        PATH: /srv/conda/envs/env_snap/snap/bin:/usr/share/java/maven/bin:/usr/share/java/maven/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin
+    ResourceRequirement: {}
+    InitialWorkDirRequirement:
+      listing:
+        - entryname: calibration.xml
+          entry: |-
+            <graph id="Graph">
+              <version>1.0</version>
+              <node id="Read">
+                <operator>Read</operator>
+                  <sources/>
+                  <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                    <file>$inFile</file>
+                    <formatName>SENTINEL-1</formatName>
+                  </parameters>
+              </node>
+              <node id="Apply-Orbit-File">
+                <operator>Apply-Orbit-File</operator>
+                <sources>
+                  <sourceProduct refid="Read"/>
+                </sources>
+                <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                  <orbitType>Sentinel Precise (Auto Download)</orbitType>
+                  <polyDegree>3</polyDegree>
+                  <continueOnFail>true</continueOnFail>
+                </parameters>
+              </node>
+              <node id="Calibration">
+                <operator>Calibration</operator>
+                <sources>
+                  <sourceProduct refid="Apply-Orbit-File"/>
+                </sources>
+                <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                  <sourceBands/>
+                  <auxFile>Latest Auxiliary File</auxFile>
+                  <externalAuxFile/>
+                  <outputImageInComplex>false</outputImageInComplex>
+                  <outputImageScaleInDb>false</outputImageScaleInDb>
+                  <createGammaBand>false</createGammaBand>
+                  <createBetaBand>false</createBetaBand>
+                  <selectedPolarisations/>
+                  <outputSigmaBand>true</outputSigmaBand>
+                  <outputGammaBand>false</outputGammaBand>
+                  <outputBetaBand>false</outputBetaBand>
+                </parameters>
+              </node>
+              <node id="LinearToFromdB">
+                <operator>LinearToFromdB</operator>
+                <sources>
+                  <sourceProduct refid="Calibration"/>
+                </sources>
+                <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                  <sourceBands/>
+                </parameters>
+              </node>
+              <node id="Terrain-Correction">
+                <operator>Terrain-Correction</operator>
+                <sources>
+                  <sourceProduct refid="LinearToFromdB"/>
+                </sources>
+                <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                  <sourceBands/>
+                  <demName>SRTM 1Sec HGT</demName>
+                  <externalDEMFile/>
+                  <externalDEMNoDataValue>0.0</externalDEMNoDataValue>
+                  <externalDEMApplyEGM>true</externalDEMApplyEGM>
+                  <demResamplingMethod>BILINEAR_INTERPOLATION</demResamplingMethod>
+                  <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
+                  <pixelSpacingInMeter>20.0</pixelSpacingInMeter>
+                  <pixelSpacingInDegree>0.0</pixelSpacingInDegree>
+                  <mapProjection>AUTO:42001</mapProjection>
+                  <alignToStandardGrid>false</alignToStandardGrid>
+                  <standardGridOriginX>0.0</standardGridOriginX>
+                  <standardGridOriginY>0.0</standardGridOriginY>
+                  <nodataValueAtSea>true</nodataValueAtSea>
+                  <saveDEM>false</saveDEM>
+                  <saveLatLon>false</saveLatLon>
+                  <saveIncidenceAngleFromEllipsoid>false</saveIncidenceAngleFromEllipsoid>
+                  <saveLocalIncidenceAngle>false</saveLocalIncidenceAngle>
+                  <saveProjectedLocalIncidenceAngle>false</saveProjectedLocalIncidenceAngle>
+                  <saveSelectedSourceBand>true</saveSelectedSourceBand>
+                  <saveLayoverShadowMask>false</saveLayoverShadowMask>
+                  <outputComplex>false</outputComplex>
+                  <applyRadiometricNormalization>false</applyRadiometricNormalization>
+                  <saveSigmaNought>false</saveSigmaNought>
+                  <saveGammaNought>false</saveGammaNought>
+                  <saveBetaNought>false</saveBetaNought>
+                  <incidenceAngleForSigma0>Use projected local incidence angle from DEM</incidenceAngleForSigma0>
+                  <incidenceAngleForGamma0>Use projected local incidence angle from DEM</incidenceAngleForGamma0>
+                  <auxFile>Latest Auxiliary File</auxFile>
+                  <externalAuxFile/>
+                </parameters>
+              </node>
+              <node id="Write">
+                <operator>Write</operator>
+                <sources>
+                  <sourceProduct refid="Terrain-Correction"/>
+                </sources>
+                <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+                  <file>./cal.tif</file>
+                  <formatName>GeoTIFF-BigTIFF</formatName>
+                </parameters>
+              </node>
+            </graph>
+
+  baseCommand: [gpt, calibration.xml]
+
+  arguments:
+  - -PinFile=$(inputs.product.path + "/" + inputs.asset_href )
+
+  inputs:
+
+    product:
+      type: Directory
+
+    asset_href: 
+      type: string[]
+
+  outputs:
+    calibrated:
+      outputBinding:
+        glob: "*.tif"
+      type: File
+
+- class: CommandLineTool 
+
+  id: stac-ify
+
+  requirements:
+    EnvVarRequirement:
+      envDef:
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    ResourceRequirement: {}    
+    InlineJavascriptRequirement: {}
+    DockerRequirement:
+      dockerPull: stac-ify
+
+  baseCommand: stac-ify
+  
+  arguments: []
+
+  inputs:
+    staged: 
+      inputBinding:
+        position: 1
+      type: Directory
+    calibrated:
+      inputBinding:
+        position: 2
+      type: File[]
+    overview:
+      inputBinding:
+        position: 3
+      type: File[]
+
+  outputs:
+  
+    stac:
+      outputBinding:
+        glob: .
+      type: Directory
 
 - class: CommandLineTool
   id: stage-out
@@ -251,8 +492,6 @@ $graph:
         }
   - -r
   - '4'
-  - -af 
-  - download
  
   inputs:
     sink_access_key_id:
@@ -271,13 +510,13 @@ $graph:
     wf_outputs:
       inputBinding:
         position: 6
-      type: Directory[]
+      type: Directory
 
   outputs:
     wf_outputs_out:
       outputBinding:
         glob: .
-      type: Directory[]
+      type: Directory
 
   requirements:
     EnvVarRequirement:

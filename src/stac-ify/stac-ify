@@ -1,0 +1,58 @@
+#!/bin/bash
+
+set -x
+
+stac_catalog=$1
+calibrated=$2
+overview=$3
+
+stac_item="${stac_catalog}/$( jq -r '.links | select(.. | .rel? == "item")[0].href' ${stac_catalog}/catalog.json)"
+
+product_id=$( cat ${stac_item} | jq '.id' | tr -d '"' )
+
+polarizations=$( cat ${stac_item} | jq '.properties."sar:polarizations" | join(",")' | tr -d '"' )
+
+IFS=',' read -r -a array <<< "${polarizations}"
+
+cp ${stac_item} result-item.json
+
+cat result-item.json |  jq -r '.["assets"]={}' >  result-item.json.tmp && mv result-item.json.tmp result-item.json
+
+rm -f result-item.json.tmp 
+
+source /functions.sh
+
+for i in "${!array[@]}"
+do
+      if [[ "${array[$i]}" =~ ^(HH|VV)$ ]]; then
+        echo "copol"
+        gdal_translate -b $((i+1)) -of GTiff -ot Byte -scale -20 0 0 255 ${overview} ${product_id}_${array[$i]}_overview.tif
+      else
+        echo "crosspol"
+        gdal_translate -b $((i+1)) -of GTiff -ot Byte -scale -26 -5 0 255 ${overview} ${product_id}_${array[$i]}_overview.tif
+      fi
+
+      add_asset result-item.json \
+        "overview-${array[$i]}" \
+        ./${product_id}_${array[$i]}_overview.tif \
+        "image/tiff; application=geotiff" \
+        "overview for sigma0 in decibel for polarization ${array[$i]}" \
+        "overview" 
+
+      gdal_translate -b $((i+1)) -of COG ${calibrated} ${product_id}_${array[$i]}.tif
+
+      add_asset result-item.json \
+        "s0-db-${array[$i]}" \
+        ./${product_id}_${array[$i]}.tif \
+        "image/tiff; application=geotiff" \
+        "sigma0 in decibel for polarization ${array[$i]}" \
+        "data" 
+
+done
+
+# initialise the output catalog
+init_catalog > catalog.json
+
+# add the item 
+add_item catalog.json result-item.json
+
