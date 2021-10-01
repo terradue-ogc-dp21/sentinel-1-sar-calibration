@@ -11,57 +11,60 @@ $graph:
   doc: Stage-in/out (source to local filesystem or source to sink object storages)
   id: main
   inputs:
-    source-access-key-id:
+    source_access_key_id:
       doc: Source access-key-id if staging from object storage (optional)
       type: string?
-    source-secret-access-key:
+    source_secret_access_key:
       doc: Source secret access key if staging from object storage (optional)
       type: string?
-    source-service-url:
+    source_service_url:
       doc: Source region if staging from object storage (optional)
       type: string?
-    source-region:
+    source_region:
       doc: Source region if staging from object storage (optional)
       type: string?
-    sink-access-key-id:
+    sink_access_key_id:
       doc: Sink access key id if staging to object storage (optional)
       type: string?
-    sink-secret-access-key:
+    sink_secret_access_key:
       doc: Sink secret access key if staging to object storage (optional)
       type: string?
-    sink-service-url:
+    sink_service_url:
       doc: Sink service URL if staging to object storage (optional)
       type: string?
-    sink-region:
+    sink_region:
       doc: Sink region if staging to object storage (optional)
       type: string?      
-    sink-path:
+    sink_path:
       doc: Sink path if staging to object storage (optional)
       type: string?  
     asf_username: 
       type: string
     asf_password:
       type: string
-    search-terms:
+    search_terms:
       type: string[]?
       doc: key:value pair for the discovery step
     endpoint:
       type: string
       doc: opensearch endpoint
     harvest:
-      type: string
+      type: string?
       doc: Do the harvesting (true/false)
+      default: "true"
     verbose:
       type: string
       doc: Higher verbosity level (true/false)
+      default: "false"
     si: 
-      type: string[]
-      doc: Sets the supplier(s) 
+      type: string
+      doc: Sets the supplier
+      default: "ASF"
 
   outputs:
   - id: wf_outputs_m
     outputSource:
-    - node_stage_out/wf_outputs_out
+    - node_calibration/calibration_outputs
     type: Directory[]
          # type: array
          # items:
@@ -71,27 +74,111 @@ $graph:
     - class: ScatterFeatureRequirement
     - class: StepInputExpressionRequirement
     - class: InlineJavascriptRequirement
+    - class: SubworkflowFeatureRequirement
 
 
   steps:
     node_opensearch:
       in: 
-        inp1: search-terms
-        inp2: endpoint
+        search_terms: search_terms
+        endpoint: endpoint
       out:
       - discovered
       run: "#opensearch"
        
-    node_stage_in:
-      in:
-        inp1: 
+    node_calibration:
+
+      in: 
+        product_reference:
           source: node_opensearch/discovered
         harvest: harvest
         verbose: verbose
-        source_access_key_id: source-access-key-id
-        source_secret_access_key: source-secret-access-key
-        source_service_url: source-service-url
-        source_region: source-region
+        source_access_key_id: source_access_key_id
+        source_secret_access_key: source_secret_access_key
+        source_service_url: source_service_url
+        source_region: source_region
+        si: si
+        asf_password: asf_password
+        asf_username: asf_username
+      out: 
+      - calibration_outputs
+
+      run: "#wf-sar-calibration"
+
+      scatter: product_reference
+      scatterMethod: dotproduct
+
+- class: Workflow
+
+  id: wf-sar-calibration
+
+  inputs:
+    source_access_key_id:
+      doc: Source access-key-id if staging from object storage (optional)
+      type: string?
+    source_secret_access_key:
+      doc: Source secret access key if staging from object storage (optional)
+      type: string?
+    source_service_url:
+      doc: Source region if staging from object storage (optional)
+      type: string?
+    source_region:
+      doc: Source region if staging from object storage (optional)
+      type: string?
+    sink_access_key_id:
+      doc: Sink access key id if staging to object storage (optional)
+      type: string?
+    sink_secret_access_key:
+      doc: Sink secret access key if staging to object storage (optional)
+      type: string?
+    sink_service_url:
+      doc: Sink service URL if staging to object storage (optional)
+      type: string?
+    sink_region:
+      doc: Sink region if staging to object storage (optional)
+      type: string?      
+    sink_path:
+      doc: Sink path if staging to object storage (optional)
+      type: string?  
+    asf_username: 
+      type: string
+    asf_password:
+      type: string
+    search_terms:
+      type: string[]?
+      doc: key:value pair for the discovery step
+    product_reference: 
+      type: string
+    harvest:
+      type: string?
+      doc: Do the harvesting (true/false)
+      default: "true"
+    verbose:
+      type: string
+      doc: Higher verbosity level (true/false)
+      default: "false"
+    si: 
+      type: string
+      doc: Sets the supplier
+      default: "ASF"
+
+  outputs:
+  - id: calibration_outputs
+    outputSource:
+    - node_stage_out/wf_outputs_out
+    type: Directory
+
+  steps:
+
+    node_stage_in:
+      in:
+        product_reference: product_reference
+        harvest: harvest
+        verbose: verbose
+        source_access_key_id: source_access_key_id
+        source_secret_access_key: source_secret_access_key
+        source_service_url: source_service_url
+        source_region: source_region
         si: si
         asf_password: asf_password
         asf_username: asf_username
@@ -99,9 +186,6 @@ $graph:
       - staged
       run: "#stage-in"
         
-      scatter: inp1
-      scatterMethod: dotproduct  
-
     node_resolve_manifest:
       run: '#cat2asset'
       in:
@@ -112,55 +196,46 @@ $graph:
       out:
       - asset_href
 
-      scatter: stac
-      scatterMethod: dotproduct  
-
     node_sar_calibration: 
       in:
         product: 
-          source: [node_stage_in/staged]
+          source: node_stage_in/staged
         asset_href:
-          source: [node_resolve_manifest/asset_href]
+          source: node_resolve_manifest/asset_href
       out: 
       - calibrated
       run: "#sar-calibration"
         
-      scatter: product
-      scatterMethod: dotproduct  
-
     node_stac:
 
       in:
         staged: 
-          source: [node_stage_in/staged]
+          source: node_stage_in/staged
         calibrated:
-          source: [node_sar_calibration/calibrated]
+          source: node_sar_calibration/calibrated
         overview:
-          source: [node_sar_calibration/calibrated]
+          source: node_sar_calibration/calibrated
 
       out: 
       - stac
 
       run: "#stac-ify"
 
-      scatter: staged
-      scatterMethod: dotproduct
 
     node_stage_out:
       in:
-        sink_access_key_id: sink-access-key-id
-        sink_secret_access_key: sink-secret-access-key
-        sink_service_url: sink-service-url
-        sink_path: sink-path
-        sink_region: sink-region
+        sink_access_key_id: sink_access_key_id
+        sink_secret_access_key: sink_secret_access_key
+        sink_service_url: sink_service_url
+        sink_path: sink_path
+        sink_region: sink_region
         wf_outputs: 
-            source: [node_stac/stac]
+            source: node_stac/stac
       out:
       - wf_outputs_out
       run: "#stage-out"
-        
-      scatter: wf_outputs
-      scatterMethod: dotproduct
+      
+
 
 
 - class: CommandLineTool 
@@ -172,14 +247,14 @@ $graph:
     DockerRequirement:
       dockerPull: docker.io/terradue/opensearch-client:latest
   inputs:
-    inp1: 
+    search_terms: 
       type:
         - "null"
         - type: array
           items: string
           inputBinding:
             prefix: '-p'
-    inp2:
+    endpoint:
       inputBinding:
         position: 8
       type: string
@@ -226,17 +301,17 @@ $graph:
         }
   - valueFrom: |
       ${ 
-        if (inputs.inp1.split("#").length == 2) 
-          { return ["-af", inputs.inp1.split("#")[1]]; }
+        if (inputs.product_reference.split("#").length == 2) 
+          { return ["-af", inputs.product_reference.split("#")[1]]; }
         else 
           {return "--empty"}
         }
   - -o
   - ./
-  - valueFrom: ${ return inputs.inp1.split("#")[0]; } 
+  - valueFrom: ${ return inputs.product_reference.split("#")[0]; } 
     
   inputs:
-    inp1:
+    product_reference:
       inputBinding:
       type: string
     harvest:
@@ -256,7 +331,7 @@ $graph:
     asf_password: 
       type: string
     si: 
-      type: string[]
+      type: string
   outputs:
     staged:
       outputBinding:
@@ -454,7 +529,7 @@ $graph:
       type: Directory
 
     asset_href: 
-      type: string[]
+      type: string
 
   outputs:
     calibrated:
@@ -487,11 +562,11 @@ $graph:
     calibrated:
       inputBinding:
         position: 2
-      type: File[]
+      type: File
     overview:
       inputBinding:
         position: 3
-      type: File[]
+      type: File
 
   outputs:
   
