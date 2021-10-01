@@ -11,7 +11,7 @@ You'll need:
 
 ## Get the CWL Workflow
 
-The Sentinel-1 SAR calibration workflow releases are available at: <insert URL>
+The Sentinel-1 SAR calibration workflow releases are available at: https://github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/releases
 
 ## Running the CWL Workflow
 
