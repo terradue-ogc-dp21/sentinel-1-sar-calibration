@@ -35,25 +35,7 @@ jobs:
       - run: echo app version is $APP_VERSION
       - id: set-version
         run: echo "::set-output name=version::$APP_VERSION"
-
-  container-raw:
    
-    needs: version
-    
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v2
-      - run: echo version ${{needs.version.outputs.app-version}}
-      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
-      - name: build & push raw image
-        run: |
-          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/raw2
-          docker build src/raw --tag raw2
-          docker tag raw2 $IMAGE_ID:${{needs.version.outputs.app-version}}
-          docker push $IMAGE_ID:${{needs.version.outputs.app-version}}
-
-    
   container-snap-gpt:
    
     needs: version
