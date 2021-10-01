@@ -81,7 +81,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - run: yq -i eval '(.$graph[] | select (.id == "snap-gpt") ).requirements.DockerRequirement.dockerPull = "docker.pkg.github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/snap-gpt-s1-cal:${{needs.version.outputs.app-version}}"' s1-sar-calibration.cwl 
+      - run: yq -i eval '(.$graph[] | select (.id == "sar-calibration") ).requirements.DockerRequirement.dockerPull = "docker.pkg.github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/snap-gpt-s1-cal:${{needs.version.outputs.app-version}}"' s1-sar-calibration.cwl 
       - run: yq -i eval '(.$graph[] | select (.id == "stac-ify") ).requirements.DockerRequirement.dockerPull = "docker.pkg.github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/stac-ify-s1-cal:${{needs.version.outputs.app-version}}"' s1-sar-calibration.cwl
       - run: mkdir downloads
       - run: cp s1-sar-calibration.cwl downloads/s1-sar-calibration.${{needs.version.outputs.app-version}}.cwl

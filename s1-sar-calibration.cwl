@@ -1,6 +1,6 @@
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.0
+s:softwareVersion: 0.1.1
 schemas:
 - http://schema.org/version/9.0/schemaorg-current-http.rdf
 
@@ -384,7 +384,7 @@ $graph:
   requirements:
     InlineJavascriptRequirement: {}
     DockerRequirement:
-      dockerPull: terradue/jq
+      dockerPull: docker.io/terradue/jq
     ShellCommandRequirement: {}
     InitialWorkDirRequirement:
       listing:
