@@ -1,0 +1,129 @@
+name: build
+on:
+  push:
+    branches:
+      - master
+      - main
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+      - run: pip install cwltool
+      - run: cwltool --validate s1-sar-calibration.cwl
+
+  version:
+    needs: validate
+
+    runs-on: ubuntu-latest
+
+    outputs:
+
+      app-version: ${{ steps.set-version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: wget https://github.com/mikefarah/yq/releases/download/${VERSION}/${BINARY} -O /usr/bin/yq 
+        env:
+          VERSION: v4.2.0
+          BINARY: yq_linux_amd64
+      - run: chmod +x /usr/bin/yq
+      - run: echo "APP_VERSION=$( yq e '."s:softwareVersion"' s1-sar-calibration.cwl | tr -d "\n" )" >> $GITHUB_ENV
+      - run: echo app version is $APP_VERSION
+      - id: set-version
+        run: echo "::set-output name=version::$APP_VERSION"
+
+  container-raw:
+   
+    needs: version
+    
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: echo version ${{needs.version.outputs.app-version}}
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
+      - name: build & push raw image
+        run: |
+          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/raw2
+          docker build src/raw --tag raw2
+          docker tag raw2 $IMAGE_ID:${{needs.version.outputs.app-version}}
+          docker push $IMAGE_ID:${{needs.version.outputs.app-version}}
+
+    
+  container-snap-gpt:
+   
+    needs: version
+    
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: echo version ${{needs.version.outputs.app-version}}
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
+      - name: build & push snap-gpt image
+        run: |
+          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/snap-gpt-s1-cal
+          docker build src/snap-gpt --tag snap-gpt
+          docker tag snap-gpt $IMAGE_ID:${{needs.version.outputs.app-version}}
+          docker push $IMAGE_ID:${{needs.version.outputs.app-version}}
+
+  container-stac-ify:
+   
+    needs: version
+    
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: echo version ${{needs.version.outputs.app-version}}
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
+      - name: build & push stac-ify image
+        run: |
+          IMAGE_ID=docker.pkg.github.com/${{ github.repository }}/stac-ify-s1-cal
+          docker build src/stac-ify --tag stac-ify
+          docker tag stac-ify $IMAGE_ID:${{needs.version.outputs.app-version}}
+          docker push $IMAGE_ID:${{needs.version.outputs.app-version}}
+
+  publish:
+
+    needs: 
+      - container-snap-gpt
+      - container-stac-ify
+      - version
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: yq -i eval '(.$graph[] | select (.id == "snap-gpt") ).requirements.DockerRequirement.dockerPull = "docker.pkg.github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/snap-gpt-s1-cal:${{needs.version.outputs.app-version}}"' s1-sar-calibration.cwl 
+      - run: yq -i eval '(.$graph[] | select (.id == "stac-ify") ).requirements.DockerRequirement.dockerPull = "docker.pkg.github.com/terradue-ogc-dp21/sentinel-1-sar-calibration/stac-ify-s1-cal:${{needs.version.outputs.app-version}}"' s1-sar-calibration.cwl
+      - run: cp  s1-sar-calibration.cwl downloads/ s1-sar-calibration.${{needs.version.outputs.app-version}}.cwl
+      - run: ls downloads/s1-sar-calibration.${{needs.version.outputs.app-version}}.cwl
+      - uses: actions/upload-artifact@v2
+        with: 
+          name: application-package
+          path: downloads
+      - name: release
+        uses: actions/create-release@v1
+        id: create_release
+        with:
+          draft: false
+          prerelease: false
+          release_name: ${{needs.version.outputs.app-version}}
+          tag_name: ${{needs.version.outputs.app-version}}
+          #body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: upload linux artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: downloads/ s1-sar-calibration.${{needs.version.outputs.app-version}}.cwl
+          asset_name: s1-sar-calibration.${{needs.version.outputs.app-version}}.cwl
+          asset_content_type: text/yaml

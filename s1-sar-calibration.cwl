@@ -1,3 +1,10 @@
+$namespaces:
+  s: https://schema.org/
+s:softwareVersion: 0.1.0
+schemas:
+- http://schema.org/version/9.0/schemaorg-current-http.rdf
+
+
 $graph:
 - class: Workflow
   label: Stage-in/out (source to local filesystem or source to sink object storages)
@@ -31,10 +38,10 @@ $graph:
     sink-path:
       doc: Sink path if staging to object storage (optional)
       type: string?  
-    #input-reference:
-    #  doc: A reference to an opensearch catalog
-    #  label: A reference to an opensearch catalog
-    #  type: string[]
+    asf_username: 
+      type: string
+    asf_password:
+      type: string
     search-terms:
       type: string[]?
       doc: key:value pair for the discovery step
@@ -47,11 +54,6 @@ $graph:
     verbose:
       type: string
       doc: Higher verbosity level (true/false)
-#    do:
-#     type: string[]
-    config:
-      type: File
-      doc: Stars Configuration file for the stage-in step
     si: 
       type: string[]
       doc: Sets the supplier(s) 
@@ -90,8 +92,9 @@ $graph:
         source_secret_access_key: source-secret-access-key
         source_service_url: source-service-url
         source_region: source-region
-        config: config
         si: si
+        asf_password: asf_password
+        asf_username: asf_username
       out:
       - staged
       run: "#stage-in"
@@ -195,10 +198,10 @@ $graph:
   
   arguments:
   - copy
-  #- -xa
-  #- "false"
   - valueFrom: |
-      ${ return '-conf=' + inputs.config.path }
+      ${ 
+          return "-conf=" + runtime.outdir + "/usersettings.json";
+      }
   - -rel
   - -si 
   - valueFrom: |
@@ -230,7 +233,7 @@ $graph:
         }
   - -o
   - ./
-  - valueFrom: ${ return inputs.inp1.split("#")[0]; } # + '&do=[' + inputs.do.toString() + ']'; }
+  - valueFrom: ${ return inputs.inp1.split("#")[0]; } 
     
   inputs:
     inp1:
@@ -248,8 +251,10 @@ $graph:
       type: string?
     source_region:
       type: string?
-    config:
-      type: File
+    asf_username:
+      type: string
+    asf_password: 
+      type: string
     si: 
       type: string[]
   outputs:
@@ -271,6 +276,33 @@ $graph:
     InlineJavascriptRequirement: {}
     DockerRequirement:
       dockerPull: docker.io/terradue/stars-t2:0.9.44
+    InitialWorkDirRequirement: 
+      listing: 
+        - entryname: usersettings.json
+          entry: |- 
+            {
+                "Plugins": {
+                    "Terradue": {
+                        "Assembly": "/usr/share/Stars-Terradue/Stars-Terradue.dll",
+                        "Suppliers": {
+                            "ASF": {
+                                "Type": "Terradue.Data.Stars.Suppliers.DataHubSourceSupplier",
+                                "ServiceUrl": "https://api.daac.asf.alaska.edu",
+                                "Priority": 3
+                            }
+                        }
+                    }
+                },
+                "Credentials": {
+                    "ASF": {
+                        "AuthType": "basic",
+                        "UriPrefix": "https://urs.earthdata.nasa.gov",
+                        "Username": "$(inputs.asf_username)",
+                        "Password": "$(inputs.asf_password)"
+                    }
+                }
+            }
+
 
 - class: CommandLineTool
   id: cat2asset

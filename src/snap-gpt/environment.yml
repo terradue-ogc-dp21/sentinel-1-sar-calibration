@@ -1,0 +1,6 @@
+name: env_snap
+channels:
+  - terradue
+  - conda-forge
+dependencies:
+  - snap=8.0.0
